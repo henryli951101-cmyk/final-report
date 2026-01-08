@@ -1,0 +1,207 @@
+#include <iostream>
+#include <vector>
+#include <string>
+#include <deque>
+#include <cstdlib>
+#include <ctime>
+#include <iomanip>
+#include "rlutil.h"
+
+// 定義常數
+const int SCREEN_WIDTH = 80;
+const int SCREEN_HEIGHT = 25;
+const int HIST_SIZE = 60; // 歷史資料長度
+
+// 模擬系統資料結構
+struct SystemData {
+    int cpuUsage;
+    int memUsage;
+    std::deque<int> cpuHistory;
+    std::vector<std::string> logs;
+};
+
+// 初始化資料
+void initData(SystemData& data) {
+    data.cpuUsage = 0;
+    data.memUsage = 0;
+    for (int i = 0; i < HIST_SIZE; i++) {
+        data.cpuHistory.push_back(0);
+    }
+    data.logs.push_back("System monitor started...");
+}
+
+// 產生模擬數據 (隨機波動)
+void updateData(SystemData& data) {
+    // 模擬 CPU 波動
+    int change = (rand() % 11) - 5; // -5 to +5
+    data.cpuUsage += change;
+    if (data.cpuUsage < 0) data.cpuUsage = 0;
+    if (data.cpuUsage > 100) data.cpuUsage = 100;
+
+    // 更新歷史紀錄
+    data.cpuHistory.pop_front();
+    data.cpuHistory.push_back(data.cpuUsage);
+
+    // 模擬 Memory 波動
+    data.memUsage = 40 + (rand() % 20); // 40-60%
+
+    // 隨機產生 Log
+    if (rand() % 20 == 0) {
+        if (data.logs.size() >= 5) data.logs.erase(data.logs.begin());
+        if (data.cpuUsage > 80) 
+            data.logs.push_back("[WARNING] CPU High Load!");
+        else 
+            data.logs.push_back("[INFO] Process updated.");
+    }
+}
+
+// 繪製進度條
+void drawProgressBar(std::string label, int value, int x, int y, int width) {
+    rlutil::locate(x, y); // [cite: 140]
+    rlutil::setColor(rlutil::WHITE); // [cite: 155]
+    std::cout << label << " [";
+    
+    int barLen = (value * (width - 15)) / 100;
+    
+    // 根據數值決定顏色 
+    if (value < 50) rlutil::setColor(rlutil::GREEN);      // [cite: 153]
+    else if (value < 80) rlutil::setColor(rlutil::YELLOW); // [cite: 153]
+    else rlutil::setColor(rlutil::RED);                   // [cite: 153]
+
+    for (int i = 0; i < width - 15; i++) {
+        if (i < barLen) std::cout << "|";
+        else std::cout << " ";
+    }
+    
+    rlutil::setColor(rlutil::WHITE);
+    std::cout << "] " << std::setw(3) << value << "%";
+}
+
+// 繪製歷史趨勢圖 (簡易長條圖) [cite: 795]
+void drawHistoryGraph(const std::deque<int>& history, int x, int y) {
+    rlutil::locate(x, y);
+    rlutil::setColor(rlutil::CYAN);
+    std::cout << "CPU History (Last 60s):";
+    
+    // 繪製底部基線
+    rlutil::locate(x, y + 6);
+    for(int i=0; i<HIST_SIZE; i++) std::cout << "-";
+
+    // 繪製柱狀圖
+    for (int i = 0; i < HIST_SIZE; i++) {
+        int height = history[i] / 20; // 將 0-100 對映到 0-5 高度
+        if (height > 5) height = 5;
+        
+        for (int h = 0; h < 5; h++) {
+            rlutil::locate(x + i, y + 5 - h);
+            if (h < height) {
+                if(history[i] > 80) rlutil::setColor(rlutil::RED);
+                else rlutil::setColor(rlutil::BLUE);
+                std::cout << "|";
+            } else {
+                std::cout << " "; // 清除舊痕跡
+            }
+        }
+    }
+}
+
+// 繪製日誌視窗
+void drawLogs(const std::vector<std::string>& logs, int x, int y) {
+    rlutil::locate(x, y);
+    rlutil::setColor(rlutil::MAGENTA);
+    std::cout << "=== System Logs ===";
+    
+    rlutil::setColor(rlutil::GREY);
+    for (size_t i = 0; i < logs.size(); i++) {
+        rlutil::locate(x, y + 1 + i);
+        // 清除該行舊字元 (簡單作法：印空白)
+        std::cout << "                           "; 
+        rlutil::locate(x, y + 1 + i);
+        std::cout << logs[i];
+    }
+}
+
+// 繪製框架與標題
+void drawInterface() {
+    rlutil::cls(); // [cite: 132]
+    rlutil::setColor(rlutil::WHITE);
+    rlutil::setBackgroundColor(rlutil::BLUE); // [cite: 162]
+    
+    // 頂部標題列
+    for(int i=1; i<=SCREEN_WIDTH; i++) {
+        rlutil::locate(i, 1);
+        std::cout << " ";
+    }
+    rlutil::locate(25, 1);
+    std::cout << "ADVANCED SYSTEM MONITOR (Exercise 5.3)";
+    
+    rlutil::resetColor(); // [cite: 176]
+    
+    // 底部提示
+    rlutil::locate(1, SCREEN_HEIGHT);
+    rlutil::setColor(rlutil::GREY);
+    std::cout << "Controls: [P] Pause  [Q] Quit";
+}
+
+int main() {
+    srand(time(0));
+    
+    // 隱藏游標，避免閃爍 [cite: 182]
+    rlutil::hidecursor();
+    rlutil::saveDefaultColor(); // [cite: 169]
+    
+    SystemData data;
+    initData(data);
+    
+    drawInterface();
+    
+    bool running = true;
+    bool paused = false;
+    
+    while (running) {
+        // --- 非阻塞輸入處理  ---
+        if (rlutil::kbhit()) { // 檢查是否有按鍵 
+            char key = rlutil::getch(); // 讀取按鍵 [cite: 196]
+            if (key == 'q' || key == 'Q') {
+                running = false;
+            } else if (key == 'p' || key == 'P') {
+                paused = !paused;
+                rlutil::locate(35, 1);
+                if(paused) {
+                    rlutil::setBackgroundColor(rlutil::RED);
+                    std::cout << "[PAUSED]";
+                } else {
+                    rlutil::setBackgroundColor(rlutil::BLUE);
+                    std::cout << "        "; // 清除 PAUSED 字樣
+                }
+                rlutil::resetColor();
+            }
+        }
+        
+        // --- 資料更新與繪圖 ---
+        if (!paused) {
+            updateData(data);
+            
+            // 區域 1: 感測器數值 [cite: 793]
+            drawProgressBar("CPU Load", data.cpuUsage, 3, 3, 40);
+            drawProgressBar("Mem Load", data.memUsage, 3, 5, 40);
+            
+            // 區域 2: 日誌顯示
+            drawLogs(data.logs, 45, 3);
+            
+            // 區域 3: 歷史趨勢圖 [cite: 795]
+            drawHistoryGraph(data.cpuHistory, 10, 10);
+        }
+        
+        // 控制更新頻率 (FPS Control) 
+        rlutil::msleep(100); 
+    }
+    
+    // 程式結束清理
+    rlutil::cls();
+    rlutil::resetColor();
+    rlutil::showcursor(); // 恢復游標 [cite: 184]
+    
+    std::cout << "Monitor closed." << std::endl;
+    return 0;
+}
